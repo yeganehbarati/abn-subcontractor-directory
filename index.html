@@ -779,7 +779,7 @@
   <div id="authGate">
     <div class="auth-card">
       <h1>Subcontractor Directory</h1>
-      <p>Sign in with your ABN email address to continue.</p>
+      <p>Enter the shared directory password to continue.</p>
       <div id="authGateContent">
         <div class="auth-loading">Loading...</div>
       </div>
@@ -803,6 +803,8 @@
 <script>
 (function() {
   const ALLOWED_DOMAIN = 'abn-cleanroomtechnology.com';
+  // Shared team account. Pre-filled on the sign-in screen so colleagues only type the password.
+  const SHARED_ACCOUNT = 'digital@abn-cleanroomtechnology.com';
 
   const firebaseConfig = {
     apiKey: "AIzaSyDV_bDA96iUZAPeSODMsiUyUlcPOKdQFiU",
@@ -822,11 +824,12 @@
   let currentUser = null;
 
   function renderSignInButton(prefillEmail) {
+    const emailValue = prefillEmail === undefined ? SHARED_ACCOUNT : prefillEmail;
     authGateContentEl.innerHTML =
       '<div class="auth-field">' +
         '<label for="authEmail">ABN email address</label>' +
         '<input type="email" id="authEmail" autocomplete="username" spellcheck="false" ' +
-          'placeholder="name@' + ALLOWED_DOMAIN + '" value="' + escapeHtml(prefillEmail || '') + '">' +
+          'placeholder="name@' + ALLOWED_DOMAIN + '" value="' + escapeHtml(emailValue) + '">' +
       '</div>' +
       '<div class="auth-field">' +
         '<label for="authPassword">Password</label>' +
@@ -840,7 +843,7 @@
     [emailEl, passEl].forEach(function(el) {
       el.addEventListener('keydown', function(e) { if (e.key === 'Enter') signIn(); });
     });
-    setTimeout(function() { (prefillEmail ? passEl : emailEl).focus(); }, 50);
+    setTimeout(function() { (emailValue ? passEl : emailEl).focus(); }, 50);
   }
 
   function authFail(email, message) {
