@@ -127,6 +127,26 @@
   .breadcrumb button:hover { color: var(--abn-cyan); }
   .breadcrumb .current { color: var(--abn-cyan); cursor: default; }
   .breadcrumb .sep { opacity: 0.35; cursor: default; font-size: 11px; }
+  .breadcrumb .btn-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-right: 6px;
+    padding: 5px 11px 5px 9px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.92);
+    font-size: 12px;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .breadcrumb .btn-back:hover {
+    background: rgba(255,255,255,0.22);
+    border-color: var(--abn-cyan);
+    color: var(--abn-cyan);
+  }
+  .breadcrumb .btn-back + span, .breadcrumb .btn-back + button { border-left: 1px solid rgba(255,255,255,0.15); padding-left: 12px; }
+  .icn-inline { display: inline-flex; align-items: center; vertical-align: -2px; opacity: 0.85; }
   .cc-tag {
     display: inline-flex;
     align-items: center;
@@ -985,6 +1005,27 @@
     return `<div class="tier-mini-bar">${preferred ? `<div class="seg-preferred" style="width:${pPct}%"></div>` : ''}${backup ? `<div class="seg-backup" style="width:${bPct}%"></div>` : ''}</div>`;
   }
 
+  // Inline SVG pin instead of an emoji, so it renders the same on Windows, macOS and mobile.
+  function pinIcon(size) {
+    const px = size || 13;
+    return '<span class="icn-inline"><svg viewBox="0 0 24 24" width="' + px + '" height="' + px + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span>';
+  }
+  const BACK_ARROW = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>';
+
+  // Always one step up from the current level.
+  function backButton() {
+    if (view.level === 'cities') {
+      return `<button class="btn-back" title="Back to Countries" onclick="app.goCountries()">${BACK_ARROW} Back</button>`;
+    }
+    if (view.level === 'categories') {
+      return `<button class="btn-back" title="Back to ${escapeHtml(view.country)}" onclick="app.goCities('${jsStr(view.country)}')">${BACK_ARROW} Back</button>`;
+    }
+    if (view.level === 'companies') {
+      return `<button class="btn-back" title="Back to ${escapeHtml(view.city)}" onclick="app.goCategories('${jsStr(view.country)}', '${jsStr(view.city)}')">${BACK_ARROW} Back</button>`;
+    }
+    return '';
+  }
+
   const ACCENTS = ['#1B93A5', '#00C7E5', '#004974', '#86BCBF', '#6499A2'];
   function accentFor(i) { return ACCENTS[i % ACCENTS.length]; }
 
@@ -1002,11 +1043,11 @@
     } else if (view.level === 'cities') {
       html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><span class="current">${countryCrumb}</span>`;
     } else if (view.level === 'categories') {
-      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><button onclick="app.goCities('${jsStr(view.country)}')">${countryCrumb}</button><span class="sep">\u203a</span><span class="current">\ud83d\udccd ${escapeHtml(view.city)}</span>`;
+      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><button onclick="app.goCities('${jsStr(view.country)}')">${countryCrumb}</button><span class="sep">\u203a</span><span class="current">${pinIcon(12)} ${escapeHtml(view.city)}</span>`;
     } else if (view.level === 'companies') {
-      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><button onclick="app.goCities('${jsStr(view.country)}')">${countryCrumb}</button><span class="sep">\u203a</span><button onclick="app.goCategories('${jsStr(view.country)}', '${jsStr(view.city)}')">\ud83d\udccd ${escapeHtml(view.city)}</button><span class="sep">\u203a</span><span class="current">${categoryIcon(view.category)} ${escapeHtml(view.category)}</span>`;
+      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><button onclick="app.goCities('${jsStr(view.country)}')">${countryCrumb}</button><span class="sep">\u203a</span><button onclick="app.goCategories('${jsStr(view.country)}', '${jsStr(view.city)}')">${pinIcon(12)} ${escapeHtml(view.city)}</button><span class="sep">\u203a</span><span class="current">${categoryIcon(view.category)} ${escapeHtml(view.category)}</span>`;
     }
-    crumbEl.innerHTML = html;
+    crumbEl.innerHTML = backButton() + html;
   }
 
   function renderCountries() {
@@ -1033,7 +1074,7 @@
         ${tiles}
         <div class="tile add-tile" onclick="app.showAddCountry()"><span class="plus-circle">+</span> Add Country</div>
       </div>
-      ${sortedCountries.length === 0 ? '<div class="empty-state">\ud83c\udf0d No countries yet. Add your first one above.</div>' : ''}
+      ${sortedCountries.length === 0 ? '<div class="empty-state">No countries yet. Add your first one above.</div>' : ''}
     `;
   }
 
@@ -1045,7 +1086,7 @@
       const accent = accentFor(i);
       return `<div class="tile" style="animation-delay:${i * 0.04}s; --tile-accent:${accent}" onclick="app.goCategories('${jsStr(country)}', '${jsStr(city)}')">
         <div class="tile-icon-row">
-          <span class="tile-icon-badge">\ud83d\udccd</span>
+          <span class="tile-icon-badge">${pinIcon(20)}</span>
           <span class="tile-arrow">\u2192</span>
         </div>
         <h3>${escapeHtml(city)}</h3>
@@ -1063,7 +1104,7 @@
         ${tiles}
         <div class="tile add-tile" onclick="app.showAddCity()"><span class="plus-circle">+</span> Add City</div>
       </div>
-      ${sortedCities.length === 0 ? '<div class="empty-state">\ud83d\udccd No cities yet for this country. Add your first one above.</div>' : ''}
+      ${sortedCities.length === 0 ? '<div class="empty-state">No cities yet for this country. Add your first one above.</div>' : ''}
     `;
   }
 
@@ -1086,7 +1127,7 @@
 
     mainEl.innerHTML = `
       <div class="section-title">
-        <span>${countryTag(country)} ${escapeHtml(country)} \u203a \ud83d\udccd ${escapeHtml(city)} \u2014 Trades</span>
+        <span>${countryTag(country)} ${escapeHtml(country)} \u203a ${pinIcon(14)} ${escapeHtml(city)} \u2014 Trades</span>
         <button class="btn-text on-dark danger" style="text-decoration:none; font-size:0.75rem;" onclick="app.confirmDeleteCity('${jsStr(country)}', '${jsStr(city)}')">Remove city</button>
       </div>
       <div class="grid">
@@ -1124,10 +1165,10 @@
 
     mainEl.innerHTML = `
       <div class="section-title">
-        <span>${escapeHtml(country)} \u203a \ud83d\udccd ${escapeHtml(city)} \u2014 ${categoryIcon(category)} ${escapeHtml(category)}</span>
+        <span>${escapeHtml(country)} \u203a ${pinIcon(14)} ${escapeHtml(city)} \u2014 ${categoryIcon(category)} ${escapeHtml(category)}</span>
         <button class="btn-primary" onclick="app.showAddCompany()">+ Add Company</button>
       </div>
-      ${cards || '<div class="empty-state">\ud83d\uddc2\ufe0f No companies added yet for this trade.</div>'}
+      ${cards || '<div class="empty-state">No companies added yet for this trade.</div>'}
     `;
   }
 
