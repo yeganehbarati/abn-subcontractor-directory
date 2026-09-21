@@ -306,6 +306,26 @@
     transform: translateY(-4px);
   }
   .tile:hover::before { opacity: 0.6; }
+  .tile-del {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+    width: 24px;
+    height: 24px;
+    line-height: 1;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--abn-gray);
+    font-family: var(--font-body);
+    font-size: 17px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+  }
+  .tile:hover .tile-del, .tile-del:focus { opacity: 1; }
+  .tile-del:hover { background: #fdecec; color: #c0392b; }
   .tile-icon-row {
     display: flex;
     align-items: center;
@@ -1115,6 +1135,7 @@
       const list = companiesIn(country, city, cat);
       const accent = accentFor(i);
       return `<div class="tile" style="animation-delay:${i * 0.04}s; --tile-accent:${accent}" onclick="app.goCompanies('${jsStr(country)}', '${jsStr(city)}', '${jsStr(cat)}')">
+        <button class="tile-del" title="Remove trade category" onclick="event.stopPropagation(); app.confirmDeleteCategory('${jsStr(cat)}')">\u00d7</button>
         <div class="tile-icon-row">
           <span class="tile-icon-badge">${categoryIcon(cat)}</span>
           <span class="tile-arrow">\u2192</span>
@@ -1272,6 +1293,29 @@
       await saveData();
       closeModal();
       render();
+    },
+
+    confirmDeleteCategory(category) {
+      // Trades are shared across every country and city, so deleting one removes it everywhere.
+      let affected = 0, places = 0;
+      data.countries.forEach(co => {
+        citiesOf(co).forEach(ci => {
+          const list = companiesIn(co, ci, category);
+          if (list.length) { affected += list.length; places++; }
+        });
+      });
+      let msg = `Remove the trade category "${category}"? It will disappear from every country and city in the directory.`;
+      if (affected) {
+        msg += ` This also deletes ${affected} ${affected === 1 ? 'company' : 'companies'} filed under it in ${places} ${places === 1 ? 'city' : 'cities'}.`;
+      }
+      showConfirm(msg, () => {
+        data.categories = data.categories.filter(c => c !== category);
+        data.countries.forEach(co => {
+          citiesOf(co).forEach(ci => { delete data.companies[companyKey(co, ci, category)]; });
+        });
+        saveData();
+        render();
+      }, 'Remove trade');
     },
 
     showAddCity() {
