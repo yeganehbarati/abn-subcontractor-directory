@@ -810,40 +810,88 @@
     }
   });
 
-  let data = { countries: [], categories: [], companies: {} };
-  let view = { level: 'countries', country: null, category: null };
+  let data = { countries: [], categories: [], cities: {}, companies: {} };
+  let view = { level: 'countries', country: null, city: null, category: null };
   let loaded = false;
 
   const mainEl = document.getElementById('main');
   const crumbEl = document.getElementById('breadcrumb');
 
-  function companyKey(country, category) { return country + '|||' + category; }
+  function companyKey(country, city, category) { return country + '|||' + city + '|||' + category; }
+  function citiesOf(country) { return (data.cities && data.cities[country]) || []; }
+  function companiesIn(country, city, category) { return data.companies[companyKey(country, city, category)] || []; }
+  function companiesInCity(country, city) {
+    let all = [];
+    data.categories.forEach(cat => { all = all.concat(companiesIn(country, city, cat)); });
+    return all;
+  }
+  function companiesInCountry(country) {
+    let all = [];
+    citiesOf(country).forEach(city => { all = all.concat(companiesInCity(country, city)); });
+    return all;
+  }
+  // Safe interpolation into single-quoted onclick="..." arguments (handles names like L'Aquila).
+  function jsStr(s) { return escapeHtml(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")); }
+
+  // Older data stored companies as "Country|||Trade" with no city level. Split those buckets
+  // into per-city buckets using each company's own city field so nothing is lost.
+  // Returns true if anything changed (so the migrated shape gets saved back once).
+  function migrateToCityLevel() {
+    let changed = false;
+    if (!data.cities) { data.cities = {}; changed = true; }
+    data.countries.forEach(c => {
+      if (!Array.isArray(data.cities[c])) { data.cities[c] = []; changed = true; }
+    });
+    Object.keys(data.companies).forEach(key => {
+      const parts = key.split('|||');
+      if (parts.length !== 2) return;
+      changed = true;
+      const country = parts[0];
+      const category = parts[1];
+      const list = data.companies[key] || [];
+      delete data.companies[key];
+      if (!Array.isArray(data.cities[country])) data.cities[country] = [];
+      list.forEach(comp => {
+        const cityName = (comp.city || '').trim() || 'Unspecified';
+        if (!data.cities[country].some(x => x.toLowerCase() === cityName.toLowerCase())) data.cities[country].push(cityName);
+        const nk = companyKey(country, cityName, category);
+        if (!data.companies[nk]) data.companies[nk] = [];
+        data.companies[nk].push(comp);
+      });
+    });
+    return changed;
+  }
 
   function exampleData() {
     const companies = {};
-    companies[companyKey('Italy', 'Electricity')] = [
-      { id: 'ex1', company: 'Elettra Impianti Srl', contact: 'Marco Rossi', phone: '+39 02 1234 5678', email: 'm.rossi@elettraimpianti.it', city: 'Milan', notes: 'Fast turnaround, worked with us on two GMP projects.', tier: 'preferred' },
+    companies[companyKey('Italy', 'Milan', 'Electricity')] = [
+      { id: 'ex1', company: 'Elettra Impianti Srl', contact: 'Marco Rossi', phone: '+39 02 1234 5678', email: 'm.rossi@elettraimpianti.it', city: 'Milan', notes: 'Fast turnaround, worked with us on two GMP projects.', tier: 'preferred' }
+    ];
+    companies[companyKey('Italy', 'Rome', 'Electricity')] = [
       { id: 'ex2', company: 'Volt Sistemi', contact: 'Giulia Bianchi', phone: '+39 06 9876 5432', email: 'g.bianchi@voltsistemi.it', city: 'Rome', notes: 'Used once as overflow capacity.', tier: 'backup' }
     ];
-    companies[companyKey('Italy', 'HVAC')] = [
+    companies[companyKey('Italy', 'Turin', 'HVAC')] = [
       { id: 'ex3', company: 'ClimaTech Engineering', contact: 'Luca Ferrari', phone: '+39 011 223 3445', email: 'l.ferrari@climatech.it', city: 'Turin', notes: 'Strong on cleanroom AHU integration.', tier: 'preferred' }
     ];
-    companies[companyKey('Portugal', 'Electricity')] = [
+    companies[companyKey('Portugal', 'Porto', 'Electricity')] = [
       { id: 'ex4', company: 'Eletro Norte Lda', contact: 'Joao Silva', phone: '+351 22 345 6789', email: 'joao.silva@eletronorte.pt', city: 'Porto', notes: '', tier: 'preferred' }
     ];
-    companies[companyKey('Portugal', 'Flooring')] = [
+    companies[companyKey('Portugal', 'Lisbon', 'Flooring')] = [
       { id: 'ex5', company: 'Pisos Tecnicos SA', contact: 'Ana Costa', phone: '+351 21 456 7890', email: 'ana.costa@pisostecnicos.pt', city: 'Lisbon', notes: 'Epoxy and vinyl for cleanroom floors.', tier: 'preferred' }
     ];
-    companies[companyKey('Switzerland', 'HVAC')] = [
-      { id: 'ex6', company: 'Reinraum Klima AG', contact: 'Peter Muller', phone: '+41 44 123 45 67', email: 'p.muller@reinraumklima.ch', city: 'Zurich', notes: 'Premium pricing but excellent quality control.', tier: 'preferred' },
+    companies[companyKey('Switzerland', 'Zurich', 'HVAC')] = [
+      { id: 'ex6', company: 'Reinraum Klima AG', contact: 'Peter Muller', phone: '+41 44 123 45 67', email: 'p.muller@reinraumklima.ch', city: 'Zurich', notes: 'Premium pricing but excellent quality control.', tier: 'preferred' }
+    ];
+    companies[companyKey('Switzerland', 'Lausanne', 'HVAC')] = [
       { id: 'ex7', company: 'AlpVent Technik', contact: 'Sophie Meier', phone: '+41 21 987 65 43', email: 's.meier@alpvent.ch', city: 'Lausanne', notes: '', tier: 'backup' }
     ];
-    companies[companyKey('Switzerland', 'Electricity')] = [
+    companies[companyKey('Switzerland', 'Bern', 'Electricity')] = [
       { id: 'ex8', company: 'Elektro Suisse Sarl', contact: 'Thomas Weber', phone: '+41 31 234 56 78', email: 't.weber@elektrosuisse.ch', city: 'Bern', notes: '', tier: 'backup' }
     ];
     return {
       countries: ['Italy', 'Portugal', 'Switzerland'],
       categories: ['Electricity', 'HVAC', 'Flooring'],
+      cities: { Italy: ['Milan', 'Rome', 'Turin'], Portugal: ['Porto', 'Lisbon'], Switzerland: ['Zurich', 'Lausanne', 'Bern'] },
       companies
     };
   }
@@ -856,14 +904,18 @@
         if (!data.countries) data.countries = [];
         if (!data.categories) data.categories = [];
         if (!data.companies) data.companies = {};
+        if (!data.cities) data.cities = {};
+        if (migrateToCityLevel()) await saveData();
       } else {
         // Document doesn't exist yet, seed with example data so the layout is visible
         data = exampleData();
+        migrateToCityLevel();
         await saveData();
       }
     } catch (e) {
       console.error('Load failed', e);
       data = exampleData();
+      migrateToCityLevel();
     }
     loaded = true;
   }
@@ -944,12 +996,15 @@
 
   function renderBreadcrumb() {
     let html = '';
+    const countryCrumb = view.country ? `${countryTag(view.country)} ${escapeHtml(view.country)}` : '';
     if (view.level === 'countries') {
       html = `<span class="current">Countries</span>`;
+    } else if (view.level === 'cities') {
+      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><span class="current">${countryCrumb}</span>`;
     } else if (view.level === 'categories') {
-      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">›</span><span class="current">${countryTag(view.country)} ${escapeHtml(view.country)}</span>`;
+      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><button onclick="app.goCities('${jsStr(view.country)}')">${countryCrumb}</button><span class="sep">\u203a</span><span class="current">\ud83d\udccd ${escapeHtml(view.city)}</span>`;
     } else if (view.level === 'companies') {
-      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">›</span><button onclick="app.goCategories('${escapeHtml(view.country)}')">${countryTag(view.country)} ${escapeHtml(view.country)}</button><span class="sep">›</span><span class="current">${categoryIcon(view.category)} ${escapeHtml(view.category)}</span>`;
+      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><button onclick="app.goCities('${jsStr(view.country)}')">${countryCrumb}</button><span class="sep">\u203a</span><button onclick="app.goCategories('${jsStr(view.country)}', '${jsStr(view.city)}')">\ud83d\udccd ${escapeHtml(view.city)}</button><span class="sep">\u203a</span><span class="current">${categoryIcon(view.category)} ${escapeHtml(view.category)}</span>`;
     }
     crumbEl.innerHTML = html;
   }
@@ -957,17 +1012,17 @@
   function renderCountries() {
     const sortedCountries = [...data.countries].sort((a, b) => a.localeCompare(b));
     let tiles = sortedCountries.map((c, i) => {
-      let allCompanies = [];
-      data.categories.forEach(cat => { allCompanies = allCompanies.concat(data.companies[companyKey(c, cat)] || []); });
+      const allCompanies = companiesInCountry(c);
       const total = allCompanies.length;
+      const cityCount = citiesOf(c).length;
       const accent = accentFor(i);
-      return `<div class="tile" style="animation-delay:${i * 0.04}s; --tile-accent:${accent}" onclick="app.goCategories('${escapeHtml(c)}')">
+      return `<div class="tile" style="animation-delay:${i * 0.04}s; --tile-accent:${accent}" onclick="app.goCities('${jsStr(c)}')">
         <div class="tile-icon-row">
           <span class="tile-icon-badge country-badge">${countryFlag(c)}</span>
-          <span class="tile-arrow">→</span>
+          <span class="tile-arrow">\u2192</span>
         </div>
         <h3>${escapeHtml(c)}</h3>
-        <div class="meta">${total} ${total === 1 ? 'company' : 'companies'} across ${data.categories.length} ${data.categories.length === 1 ? 'trade' : 'trades'}</div>
+        <div class="meta">${total} ${total === 1 ? 'company' : 'companies'} across ${cityCount} ${cityCount === 1 ? 'city' : 'cities'}</div>
         ${tierMiniBar(allCompanies)}
       </div>`;
     }).join('');
@@ -978,20 +1033,50 @@
         ${tiles}
         <div class="tile add-tile" onclick="app.showAddCountry()"><span class="plus-circle">+</span> Add Country</div>
       </div>
-      ${sortedCountries.length === 0 ? '<div class="empty-state">🌍 No countries yet. Add your first one above.</div>' : ''}
+      ${sortedCountries.length === 0 ? '<div class="empty-state">\ud83c\udf0d No countries yet. Add your first one above.</div>' : ''}
+    `;
+  }
+
+  function renderCities() {
+    const country = view.country;
+    const sortedCities = [...citiesOf(country)].sort((a, b) => a.localeCompare(b));
+    let tiles = sortedCities.map((city, i) => {
+      const list = companiesInCity(country, city);
+      const accent = accentFor(i);
+      return `<div class="tile" style="animation-delay:${i * 0.04}s; --tile-accent:${accent}" onclick="app.goCategories('${jsStr(country)}', '${jsStr(city)}')">
+        <div class="tile-icon-row">
+          <span class="tile-icon-badge">\ud83d\udccd</span>
+          <span class="tile-arrow">\u2192</span>
+        </div>
+        <h3>${escapeHtml(city)}</h3>
+        <div class="meta">${list.length} ${list.length === 1 ? 'company' : 'companies'} across ${data.categories.length} ${data.categories.length === 1 ? 'trade' : 'trades'}</div>
+        ${tierMiniBar(list)}
+      </div>`;
+    }).join('');
+
+    mainEl.innerHTML = `
+      <div class="section-title">
+        <span>${countryTag(country)} ${escapeHtml(country)} \u2014 Cities</span>
+        <button class="btn-text on-dark danger" style="text-decoration:none; font-size:0.75rem;" onclick="app.confirmDeleteCountry('${jsStr(country)}')">Remove country</button>
+      </div>
+      <div class="grid">
+        ${tiles}
+        <div class="tile add-tile" onclick="app.showAddCity()"><span class="plus-circle">+</span> Add City</div>
+      </div>
+      ${sortedCities.length === 0 ? '<div class="empty-state">\ud83d\udccd No cities yet for this country. Add your first one above.</div>' : ''}
     `;
   }
 
   function renderCategories() {
-    const country = view.country;
+    const { country, city } = view;
     const sortedCategories = [...data.categories].sort((a, b) => a.localeCompare(b));
     let tiles = sortedCategories.map((cat, i) => {
-      const list = data.companies[companyKey(country, cat)] || [];
+      const list = companiesIn(country, city, cat);
       const accent = accentFor(i);
-      return `<div class="tile" style="animation-delay:${i * 0.04}s; --tile-accent:${accent}" onclick="app.goCompanies('${escapeHtml(country)}', '${escapeHtml(cat)}')">
+      return `<div class="tile" style="animation-delay:${i * 0.04}s; --tile-accent:${accent}" onclick="app.goCompanies('${jsStr(country)}', '${jsStr(city)}', '${jsStr(cat)}')">
         <div class="tile-icon-row">
           <span class="tile-icon-badge">${categoryIcon(cat)}</span>
-          <span class="tile-arrow">→</span>
+          <span class="tile-arrow">\u2192</span>
         </div>
         <h3>${escapeHtml(cat)}</h3>
         <div class="meta">${list.length} ${list.length === 1 ? 'company' : 'companies'}</div>
@@ -1001,8 +1086,8 @@
 
     mainEl.innerHTML = `
       <div class="section-title">
-        <span>${countryTag(country)} ${escapeHtml(country)} — Trades</span>
-        <button class="btn-text on-dark danger" style="text-decoration:none; font-size:0.75rem;" onclick="app.confirmDeleteCountry('${escapeHtml(country)}')">Remove country</button>
+        <span>${countryTag(country)} ${escapeHtml(country)} \u203a \ud83d\udccd ${escapeHtml(city)} \u2014 Trades</span>
+        <button class="btn-text on-dark danger" style="text-decoration:none; font-size:0.75rem;" onclick="app.confirmDeleteCity('${jsStr(country)}', '${jsStr(city)}')">Remove city</button>
       </div>
       <div class="grid">
         ${tiles}
@@ -1012,8 +1097,8 @@
   }
 
   function renderCompanies() {
-    const { country, category } = view;
-    const list = data.companies[companyKey(country, category)] || [];
+    const { country, city, category } = view;
+    const list = companiesIn(country, city, category);
     // sort preferred first
     const sorted = [...list].sort((a, b) => (a.tier === 'preferred' ? 0 : 1) - (b.tier === 'preferred' ? 0 : 1));
 
@@ -1039,16 +1124,17 @@
 
     mainEl.innerHTML = `
       <div class="section-title">
-        <span>${escapeHtml(country)} — ${categoryIcon(category)} ${escapeHtml(category)}</span>
+        <span>${escapeHtml(country)} \u203a \ud83d\udccd ${escapeHtml(city)} \u2014 ${categoryIcon(category)} ${escapeHtml(category)}</span>
         <button class="btn-primary" onclick="app.showAddCompany()">+ Add Company</button>
       </div>
-      ${cards || '<div class="empty-state">🗂️ No companies added yet for this trade.</div>'}
+      ${cards || '<div class="empty-state">\ud83d\uddc2\ufe0f No companies added yet for this trade.</div>'}
     `;
   }
 
   function render() {
     renderBreadcrumb();
     if (view.level === 'countries') renderCountries();
+    else if (view.level === 'cities') renderCities();
     else if (view.level === 'categories') renderCategories();
     else if (view.level === 'companies') renderCompanies();
   }
@@ -1082,9 +1168,10 @@
   }
 
   const app = {
-    goCountries() { view = { level: 'countries', country: null, category: null }; render(); },
-    goCategories(country) { view = { level: 'categories', country, category: null }; render(); },
-    goCompanies(country, category) { view = { level: 'companies', country, category }; render(); },
+    goCountries() { view = { level: 'countries', country: null, city: null, category: null }; render(); },
+    goCities(country) { view = { level: 'cities', country, city: null, category: null }; render(); },
+    goCategories(country, city) { view = { level: 'categories', country, city, category: null }; render(); },
+    goCompanies(country, city, category) { view = { level: 'companies', country, city, category }; render(); },
 
     showAddCountry() {
       showModal(`
@@ -1110,9 +1197,12 @@
       render();
     },
     confirmDeleteCountry(country) {
-      showConfirm(`Remove ${country} and all its subcontractor entries? This cannot be undone.`, () => {
+      showConfirm(`Remove ${country}, all its cities and all their subcontractor entries? This cannot be undone.`, () => {
         data.countries = data.countries.filter(c => c !== country);
-        data.categories.forEach(cat => { delete data.companies[companyKey(country, cat)]; });
+        citiesOf(country).forEach(city => {
+          data.categories.forEach(cat => { delete data.companies[companyKey(country, city, cat)]; });
+        });
+        if (data.cities) delete data.cities[country];
         saveData();
         app.goCountries();
       });
@@ -1143,6 +1233,42 @@
       render();
     },
 
+    showAddCity() {
+      showModal(`
+        <h2>Add City</h2>
+        <div class="field">
+          <label>City name</label>
+          <input type="text" id="f-city-name" placeholder="e.g. Milan" autofocus>
+        </div>
+        <p style="font-size:0.8rem; color:var(--abn-muted); margin-top:-8px; margin-bottom:16px;">Added under ${escapeHtml(view.country || '')}.</p>
+        <div class="modal-actions">
+          <button class="btn-secondary" onclick="app.closeModal()">Cancel</button>
+          <button class="btn-primary" onclick="app.saveCity()">Add</button>
+        </div>
+      `);
+      setTimeout(() => document.getElementById('f-city-name').focus(), 50);
+    },
+    async saveCity() {
+      const name = document.getElementById('f-city-name').value.trim();
+      if (!name) return;
+      const country = view.country;
+      if (!data.cities) data.cities = {};
+      if (!Array.isArray(data.cities[country])) data.cities[country] = [];
+      if (data.cities[country].some(c => c.toLowerCase() === name.toLowerCase())) { alert('That city is already in the list.'); return; }
+      data.cities[country].push(name);
+      await saveData();
+      closeModal();
+      render();
+    },
+    confirmDeleteCity(country, city) {
+      showConfirm(`Remove ${city} and all its subcontractor entries? This cannot be undone.`, () => {
+        data.categories.forEach(cat => { delete data.companies[companyKey(country, city, cat)]; });
+        if (data.cities && data.cities[country]) data.cities[country] = data.cities[country].filter(c => c !== city);
+        saveData();
+        app.goCities(country);
+      });
+    },
+
     showAddCompany() {
       showModal(`
         <h2>Add Company</h2>
@@ -1150,7 +1276,7 @@
         <div class="field"><label>Contact person</label><input type="text" id="f-contact"></div>
         <div class="field"><label>Phone</label><input type="text" id="f-phone"></div>
         <div class="field"><label>Email</label><input type="text" id="f-email"></div>
-        <div class="field"><label>City</label><input type="text" id="f-city"></div>
+        <div class="field"><label>City</label><input type="text" id="f-city" value="${escapeHtml(view.city || '')}"></div>
         <div class="field">
           <label>Tier</label>
           <div class="tier-select">
@@ -1169,8 +1295,8 @@
     },
 
     editCompany(id) {
-      const { country, category } = view;
-      const list = data.companies[companyKey(country, category)] || [];
+      const { country, city, category } = view;
+      const list = data.companies[companyKey(country, city, category)] || [];
       const comp = list.find(c => c.id === id);
       if (!comp) return;
       showModal(`
@@ -1216,7 +1342,7 @@
         notes: document.getElementById('f-notes').value.trim(),
         tier: app._selectedTier || 'preferred'
       };
-      const key = companyKey(view.country, view.category);
+      const key = companyKey(view.country, view.city, view.category);
       if (!data.companies[key]) data.companies[key] = [];
       if (app._editingId) {
         const idx = data.companies[key].findIndex(c => c.id === app._editingId);
@@ -1231,7 +1357,7 @@
 
     deleteCompany(id) {
       showConfirm('Remove this company from the list?', () => {
-        const key = companyKey(view.country, view.category);
+        const key = companyKey(view.country, view.city, view.category);
         data.companies[key] = (data.companies[key] || []).filter(c => c.id !== id);
         saveData();
         render();
