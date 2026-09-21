@@ -127,25 +127,29 @@
   .breadcrumb button:hover { color: var(--abn-cyan); }
   .breadcrumb .current { color: var(--abn-cyan); cursor: default; }
   .breadcrumb .sep { opacity: 0.35; cursor: default; font-size: 11px; }
-  .breadcrumb .btn-back {
+  .btn-back {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    margin-right: 6px;
-    padding: 5px 11px 5px 9px;
-    border-radius: 6px;
+    gap: 6px;
+    margin-bottom: 18px;
+    padding: 7px 14px 7px 11px;
+    border-radius: 7px;
     background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.2);
     color: rgba(255,255,255,0.92);
+    font-family: var(--font-heading);
     font-size: 12px;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
   }
-  .breadcrumb .btn-back:hover {
+  .btn-back:hover {
     background: rgba(255,255,255,0.22);
     border-color: var(--abn-cyan);
     color: var(--abn-cyan);
+    transform: translateX(-2px);
   }
-  .breadcrumb .btn-back + span, .breadcrumb .btn-back + button { border-left: 1px solid rgba(255,255,255,0.15); padding-left: 12px; }
   .icn-inline { display: inline-flex; align-items: center; vertical-align: -2px; opacity: 0.85; }
   .cc-tag {
     display: inline-flex;
@@ -1035,13 +1039,13 @@
   // Always one step up from the current level.
   function backButton() {
     if (view.level === 'cities') {
-      return `<button class="btn-back" title="Back to Countries" onclick="app.goCountries()">${BACK_ARROW} Back</button>`;
+      return `<button class="btn-back" onclick="app.goCountries()">${BACK_ARROW} All countries</button>`;
     }
     if (view.level === 'categories') {
-      return `<button class="btn-back" title="Back to ${escapeHtml(view.country)}" onclick="app.goCities('${jsStr(view.country)}')">${BACK_ARROW} Back</button>`;
+      return `<button class="btn-back" onclick="app.goCities('${jsStr(view.country)}')">${BACK_ARROW} ${escapeHtml(view.country)}</button>`;
     }
     if (view.level === 'companies') {
-      return `<button class="btn-back" title="Back to ${escapeHtml(view.city)}" onclick="app.goCategories('${jsStr(view.country)}', '${jsStr(view.city)}')">${BACK_ARROW} Back</button>`;
+      return `<button class="btn-back" onclick="app.goCategories('${jsStr(view.country)}', '${jsStr(view.city)}')">${BACK_ARROW} ${escapeHtml(view.city)}</button>`;
     }
     return '';
   }
@@ -1067,7 +1071,7 @@
     } else if (view.level === 'companies') {
       html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><button onclick="app.goCities('${jsStr(view.country)}')">${countryCrumb}</button><span class="sep">\u203a</span><button onclick="app.goCategories('${jsStr(view.country)}', '${jsStr(view.city)}')">${pinIcon(12)} ${escapeHtml(view.city)}</button><span class="sep">\u203a</span><span class="current">${categoryIcon(view.category)} ${escapeHtml(view.category)}</span>`;
     }
-    crumbEl.innerHTML = backButton() + html;
+    crumbEl.innerHTML = html;
   }
 
   function renderCountries() {
@@ -1078,6 +1082,7 @@
       const cityCount = citiesOf(c).length;
       const accent = accentFor(i);
       return `<div class="tile" style="animation-delay:${i * 0.04}s; --tile-accent:${accent}" onclick="app.goCities('${jsStr(c)}')">
+        <button class="tile-del" title="Remove country" onclick="event.stopPropagation(); app.confirmDeleteCountry('${jsStr(c)}')">\u00d7</button>
         <div class="tile-icon-row">
           <span class="tile-icon-badge country-badge">${countryFlag(c)}</span>
           <span class="tile-arrow">\u2192</span>
@@ -1105,6 +1110,7 @@
       const list = companiesInCity(country, city);
       const accent = accentFor(i);
       return `<div class="tile" style="animation-delay:${i * 0.04}s; --tile-accent:${accent}" onclick="app.goCategories('${jsStr(country)}', '${jsStr(city)}')">
+        <button class="tile-del" title="Remove city" onclick="event.stopPropagation(); app.confirmDeleteCity('${jsStr(country)}', '${jsStr(city)}')">\u00d7</button>
         <div class="tile-icon-row">
           <span class="tile-icon-badge">${pinIcon(20)}</span>
           <span class="tile-arrow">\u2192</span>
@@ -1116,6 +1122,7 @@
     }).join('');
 
     mainEl.innerHTML = `
+      ${backButton()}
       <div class="section-title">
         <span>${countryTag(country)} ${escapeHtml(country)} \u2014 Cities</span>
         <button class="btn-text on-dark danger" style="text-decoration:none; font-size:0.75rem;" onclick="app.confirmDeleteCountry('${jsStr(country)}')">Remove country</button>
@@ -1147,6 +1154,7 @@
     }).join('');
 
     mainEl.innerHTML = `
+      ${backButton()}
       <div class="section-title">
         <span>${countryTag(country)} ${escapeHtml(country)} \u203a ${pinIcon(14)} ${escapeHtml(city)} \u2014 Trades</span>
         <button class="btn-text on-dark danger" style="text-decoration:none; font-size:0.75rem;" onclick="app.confirmDeleteCity('${jsStr(country)}', '${jsStr(city)}')">Remove city</button>
@@ -1185,6 +1193,7 @@
     `).join('');
 
     mainEl.innerHTML = `
+      ${backButton()}
       <div class="section-title">
         <span>${escapeHtml(country)} \u203a ${pinIcon(14)} ${escapeHtml(city)} \u2014 ${categoryIcon(category)} ${escapeHtml(category)}</span>
         <button class="btn-primary" onclick="app.showAddCompany()">+ Add Company</button>
@@ -1259,7 +1268,14 @@
       render();
     },
     confirmDeleteCountry(country) {
-      showConfirm(`Remove ${country}, all its cities and all their subcontractor entries? This cannot be undone.`, () => {
+      const cityList = citiesOf(country);
+      const companyCount = companiesInCountry(country).length;
+      let msg = `Remove ${country} from the directory?`;
+      if (cityList.length) {
+        msg += ` This also deletes ${cityList.length} ${cityList.length === 1 ? 'city' : 'cities'}`;
+        msg += companyCount ? ` and ${companyCount} ${companyCount === 1 ? 'company' : 'companies'}.` : '.';
+      }
+      showConfirm(msg, () => {
         data.countries = data.countries.filter(c => c !== country);
         citiesOf(country).forEach(city => {
           data.categories.forEach(cat => { delete data.companies[companyKey(country, city, cat)]; });
@@ -1267,7 +1283,7 @@
         if (data.cities) delete data.cities[country];
         saveData();
         app.goCountries();
-      });
+      }, 'Remove country');
     },
 
     showAddCategory() {
@@ -1346,12 +1362,15 @@
       render();
     },
     confirmDeleteCity(country, city) {
-      showConfirm(`Remove ${city} and all its subcontractor entries? This cannot be undone.`, () => {
+      const companyCount = companiesInCity(country, city).length;
+      let msg = `Remove ${city} from ${country}?`;
+      if (companyCount) msg += ` This also deletes ${companyCount} ${companyCount === 1 ? 'company' : 'companies'} filed under it.`;
+      showConfirm(msg, () => {
         data.categories.forEach(cat => { delete data.companies[companyKey(country, city, cat)]; });
         if (data.cities && data.cities[country]) data.cities[country] = data.cities[country].filter(c => c !== city);
         saveData();
         app.goCities(country);
-      });
+      }, 'Remove city');
     },
 
     showAddCompany() {
