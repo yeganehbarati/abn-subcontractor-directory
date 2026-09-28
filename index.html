@@ -152,6 +152,11 @@
   .breadcrumb button.btn-requests-lib { margin-left: auto; }
   .breadcrumb button.btn-requests-lib + .btn-request { margin-left: 8px; }
   .req-count { display: inline-block; min-width: 18px; padding: 1px 6px; margin-left: 4px; border-radius: 9px; background: var(--abn-cyan); color: var(--abn-navy); font-size: 11px; text-align: center; }
+  .req-section { margin-top: 44px; padding-top: 26px; border-top: 1px solid rgba(255,255,255,0.18); }
+  .req-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .req-grid .company-card { margin-bottom: 0; }
+  .req-toggle { background: none; border: 1px solid rgba(255,255,255,0.4); color: white; border-radius: 999px; padding: 6px 16px; font-size: 0.8rem; cursor: pointer; margin-top: 18px; }
+  .req-toggle:hover { border-color: var(--abn-cyan); color: var(--abn-cyan); }
   .req-group-title { font-family: var(--font-heading); font-size: 13px; font-weight: 700; letter-spacing: 0.5px; color: rgba(255,255,255,0.85); margin: 22px 0 10px; text-transform: uppercase; }
   .status-badge { font-family: var(--font-heading); font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 5px 12px; border-radius: 12px; white-space: nowrap; }
   .status-badge.open { background: #fff1e8; color: #E8530A; border: 1px solid #f6c2a3; }
@@ -1130,7 +1135,7 @@
 
   // Always one step up from the current level.
   function backButton() {
-    if (view.level === 'categories' || view.level === 'requests') {
+    if (view.level === 'categories') {
       return `<button class="btn-back" onclick="app.goCountries()">${BACK_ARROW} All countries</button>`;
     }
     if (view.level === 'companies') {
@@ -1155,8 +1160,6 @@
       html = `<span class="current">Countries</span>`;
     } else if (view.level === 'categories') {
       html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><span class="current">${countryCrumb}</span>`;
-    } else if (view.level === 'requests') {
-      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><span class="current">Requests</span>`;
     } else if (view.level === 'companies') {
       html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><button onclick="app.goCategories('${jsStr(view.country)}')">${countryCrumb}</button><span class="sep">\u203a</span><span class="current">${categoryIcon(view.category)} ${escapeHtml(view.category)}</span>`;
     }
@@ -1192,6 +1195,7 @@
         <div class="tile add-tile" onclick="app.showAddCountry()"><span class="plus-circle">+</span> Add Country</div>
       </div>
       ${sortedCountries.length === 0 ? '<div class="empty-state">No countries yet. Add your first one above.</div>' : ''}
+      ${requestsSection()}
     `;
   }
 
@@ -1294,28 +1298,28 @@
         <div class="company-actions" style="align-items:center; gap:8px; flex-wrap:wrap;">${actions}</div>
       </div>`;
   }
-  function renderRequests() {
+  let showFound = false;
+  function requestsSection() {
     const all = (data.requests || []).slice();
     const byNeeded = (a, b) => String(a.neededBy || '').localeCompare(String(b.neededBy || ''));
-    const groups = [
-      ['open', 'Open'],
-      ['searching', 'Searching'],
-      ['found', 'Found']
-    ].map(([key, title]) => {
-      const list = all.filter(r => (r.status || 'open') === key).sort(key === 'found'
-        ? (a, b) => String(b.foundAt || '').localeCompare(String(a.foundAt || ''))
-        : byNeeded);
-      if (!list.length) return '';
-      return `<div class="req-group-title">${title} (${list.length})</div>` + list.map(requestCard).join('');
-    }).join('');
-    mainEl.innerHTML = `
-      ${backButton()}
-      <div class="section-title">
-        <span>Subcontractor requests</span>
-        <button class="btn-primary" onclick="app.showRequest()">+ Request a subcontractor</button>
-      </div>
-      ${groups || '<div class="empty-state">No requests yet.</div>'}
-    `;
+    const active = all.filter(r => (r.status || 'open') !== 'found')
+      .sort((a, b) => ((a.status || 'open') === 'open' ? 0 : 1) - ((b.status || 'open') === 'open' ? 0 : 1) || byNeeded(a, b));
+    const found = all.filter(r => r.status === 'found')
+      .sort((a, b) => String(b.foundAt || '').localeCompare(String(a.foundAt || '')));
+    return `
+      <div class="req-section" id="requests-section">
+        <div class="section-title">
+          <span>Subcontractor requests${active.length ? ` <span class="req-count">${active.length} open</span>` : ''}</span>
+          <button class="btn-primary" onclick="app.showRequest()">+ Request a subcontractor</button>
+        </div>
+        ${active.length
+          ? `<div class="req-grid">${active.map(requestCard).join('')}</div>`
+          : '<div class="empty-state">No open requests right now.</div>'}
+        ${found.length ? `
+          <button class="req-toggle" onclick="app.toggleFound()">${showFound ? 'Hide' : 'Show'} found requests (${found.length})</button>
+          ${showFound ? `<div class="req-group-title">Found</div><div class="req-grid">${found.map(requestCard).join('')}</div>` : ''}
+        ` : ''}
+      </div>`;
   }
 
   // Apply a change to the shared doc safely (re-reads latest data so nobody's edits get overwritten).
@@ -1332,7 +1336,6 @@
 
   function render() {
     renderBreadcrumb();
-    if (view.level === 'requests') { renderRequests(); return; }
     if (view.level === 'countries') renderCountries();
     else if (view.level === 'categories') renderCategories();
     else if (view.level === 'companies') renderCompanies();
@@ -1371,8 +1374,6 @@
     goCategories(country) { view = { level: 'categories', country, category: null }; render(); },
     goCompanies(country, category) { view = { level: 'companies', country, category }; render(); },
     async goRequests() {
-      view = { level: 'requests', country: null, category: null };
-      render();
       try {
         const snap = await DOC_REF.get();
         if (snap.exists && snap.data() && snap.data().json) {
@@ -1380,10 +1381,14 @@
           if (!data.companies) data.companies = {};
           if (!data.countries) data.countries = [];
           if (!data.categories) data.categories = [];
-          if (view.level === 'requests') render();
         }
       } catch (e) { console.error('Refresh failed', e); }
+      view = { level: 'countries', country: null, category: null };
+      render();
+      const el = document.getElementById('requests-section');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     },
+    toggleFound() { showFound = !showFound; render(); },
     async setRequestStatus(id, status) {
       try {
         await updateShared(cur => {
@@ -1599,7 +1604,7 @@
         </div>
         <div class="field"><label>Which subcontractor? <span class="req">*</span></label><input type="text" id="r-trade" value="${escapeHtml(prefillTrade)}"></div>
         <div class="field-row">
-          <div class="field"><label>For which project? <span class="req">*</span></label><input type="text" id="r-project" placeholder="Project name or number"></div>
+          <div class="field"><label>Project name <span class="req">*</span></label><input type="text" id="r-project"></div>
           <div class="field"><label>Needed by <span class="req">*</span></label><input type="date" id="r-date" min="${today}"></div>
         </div>
         <div class="field"><label>Note <span style="font-weight:400; opacity:0.7;">(optional)</span></label><textarea id="r-note"></textarea></div>
