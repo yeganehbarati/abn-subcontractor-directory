@@ -127,6 +127,25 @@
   .breadcrumb button:hover { color: var(--abn-cyan); }
   .breadcrumb .current { color: var(--abn-cyan); cursor: default; }
   .breadcrumb .sep { opacity: 0.35; cursor: default; font-size: 11px; }
+  .breadcrumb button.btn-request {
+    margin-left: auto;
+    background: var(--abn-cyan);
+    color: var(--abn-navy);
+    border-radius: 999px;
+    padding: 6px 16px;
+    font-size: 12.5px;
+    letter-spacing: 0.3px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    transition: background 0.15s, transform 0.15s;
+  }
+  .breadcrumb button.btn-request:hover { background: #ffffff; color: var(--abn-navy); transform: translateY(-1px); }
+  .field label .req { color: var(--abn-teal); }
+  .field-row { display: flex; gap: 12px; }
+  .field-row .field { flex: 1; min-width: 0; }
+  .request-intro { font-size: 0.85rem; color: var(--abn-muted); margin: -6px 0 18px; line-height: 1.45; }
+  .request-done { text-align: center; padding: 8px 0 4px; }
+  .request-done .big { font-size: 2.4rem; margin-bottom: 6px; }
+  .request-done p { color: var(--abn-muted); font-size: 0.9rem; line-height: 1.5; margin-bottom: 18px; }
   .btn-back {
     display: inline-flex;
     align-items: center;
@@ -818,6 +837,8 @@
   const auth = firebase.auth();
   const db = firebase.firestore();
   const DOC_REF = db.collection('shared').doc('directory');
+  // n8n webhook that emails Yeganeh when a colleague requests a new subcontractor.
+  const REQUEST_WEBHOOK_URL = 'https://yeganehbarati.app.n8n.cloud/webhook/subcontractor-request';
 
   const authGateEl = document.getElementById('authGate');
   const authGateContentEl = document.getElementById('authGateContent');
@@ -1118,6 +1139,7 @@
     } else if (view.level === 'companies') {
       html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><button onclick="app.goCategories('${jsStr(view.country)}')">${countryCrumb}</button><span class="sep">\u203a</span><span class="current">${categoryIcon(view.category)} ${escapeHtml(view.category)}</span>`;
     }
+    html += `<button class="btn-request" onclick="app.showRequest()">+ Request a subcontractor</button>`;
     crumbEl.innerHTML = html;
   }
 
@@ -1428,6 +1450,108 @@
         saveData();
         render();
       });
+    },
+
+    showRequest() {
+      const today = new Date().toISOString().slice(0, 10);
+      const prefillCountry = view.country || '';
+      const prefillTrade = view.category || '';
+      showModal(`
+        <h2>Request a subcontractor</h2>
+        <p class="request-intro">Need a subcontractor we don't have yet? Fill this in and Yeganeh will start looking right away.</p>
+        <div class="field"><label>Your name <span class="req">*</span></label><input type="text" id="r-name" placeholder="e.g. Tom"></div>
+        <div class="field-row">
+          <div class="field"><label>Country <span class="req">*</span></label><input type="text" id="r-country" value="${escapeHtml(prefillCountry)}" placeholder="e.g. Netherlands"></div>
+          <div class="field"><label>Region / city <span class="req">*</span></label><input type="text" id="r-city" placeholder="e.g. Eindhoven"></div>
+        </div>
+        <div class="field"><label>Which subcontractor? <span class="req">*</span></label><input type="text" id="r-trade" value="${escapeHtml(prefillTrade)}" placeholder="e.g. Electrical, HVAC, Flooring"></div>
+        <div class="field-row">
+          <div class="field"><label>For which project? <span class="req">*</span></label><input type="text" id="r-project" placeholder="Project name or number"></div>
+          <div class="field"><label>Needed by <span class="req">*</span></label><input type="date" id="r-date" min="${today}"></div>
+        </div>
+        <div class="field"><label>Note <span style="font-weight:400; opacity:0.7;">(optional)</span></label><textarea id="r-note" placeholder="Anything that helps, e.g. cleanroom experience needed"></textarea></div>
+        <div class="modal-actions">
+          <button class="btn-secondary" onclick="app.closeModal()">Cancel</button>
+          <button class="btn-primary" id="r-submit" onclick="app.submitRequest()">Send request</button>
+        </div>
+      `);
+      setTimeout(() => document.getElementById('r-name').focus(), 50);
+    },
+
+    async submitRequest() {
+      const val = id => (document.getElementById(id).value || '').trim();
+      const request = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+        name: val('r-name'),
+        country: val('r-country'),
+        city: val('r-city'),
+        trade: val('r-trade'),
+        project: val('r-project'),
+        neededBy: val('r-date'),
+        note: val('r-note'),
+        status: 'open',
+        createdAt: new Date().toISOString(),
+        account: currentUser ? currentUser.email : ''
+      };
+      const missing = [];
+      if (!request.name) missing.push('your name');
+      if (!request.country) missing.push('country');
+      if (!request.city) missing.push('region / city');
+      if (!request.trade) missing.push('which subcontractor');
+      if (!request.project) missing.push('project');
+      if (!request.neededBy) missing.push('needed by date');
+      if (missing.length) { alert('Please fill in: ' + missing.join(', ') + '.'); return; }
+
+      const btn = document.getElementById('r-submit');
+      btn.disabled = true; btn.textContent = 'Sending...';
+
+      // 1) Keep a record in the directory (transaction so we never overwrite someone else's edits).
+      let saved = false;
+      try {
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(DOC_REF);
+          const current = (snap.exists && snap.data() && snap.data().json) ? JSON.parse(snap.data().json) : data;
+          if (!current.requests) current.requests = [];
+          current.requests.push(request);
+          tx.set(DOC_REF, { json: JSON.stringify(current), updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+          data = current;
+        });
+        saved = true;
+      } catch (e) {
+        console.error('Saving request failed', e);
+      }
+
+      // 2) Email Yeganeh via n8n.
+      let emailed = false;
+      try {
+        const neededByLabel = new Date(request.neededBy + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+        const res = await fetch(REQUEST_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(Object.assign({}, request, { neededByLabel }))
+        });
+        emailed = res.ok;
+      } catch (e) {
+        console.error('Sending request email failed', e);
+      }
+
+      if (!saved && !emailed) {
+        btn.disabled = false; btn.textContent = 'Send request';
+        alert('The request could not be sent. Please check your connection and try again, or contact Yeganeh directly.');
+        return;
+      }
+      closeModal();
+      showModal(`
+        <div class="request-done">
+          <div class="big">✅</div>
+          <h2 style="text-align:center;">Request sent</h2>
+          <p>Thanks ${escapeHtml(request.name)}! Yeganeh has been notified and will look for a
+          ${escapeHtml(request.trade)} subcontractor in ${escapeHtml(request.city)}, ${escapeHtml(request.country)}.
+          ${emailed ? '' : '<br><br><strong>Note:</strong> the email notification did not go through, so please also let Yeganeh know directly.'}</p>
+          <button class="btn-primary" onclick="app.closeModal()">Close</button>
+        </div>
+      `);
+      render();
     },
 
     closeModal() { closeModal(); }
