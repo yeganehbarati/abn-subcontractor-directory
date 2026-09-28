@@ -33,7 +33,11 @@
     background: var(--abn-body-gradient);
     background-attachment: fixed;
     min-height: 100vh;
+    display: flex;
+    flex-direction: column;
   }
+  body > main { flex: 1 0 auto; width: 100%; }
+  body > .req-footer { flex-shrink: 0; }
   @keyframes drift {
     0%   { transform: rotate(45deg) translate(0, 0); }
     50%  { transform: rotate(45deg) translate(-14px, 10px); }
@@ -170,6 +174,7 @@
   .rf-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 22px; }
   .rf-eyebrow { font-family: var(--font-heading); font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--abn-teal); margin-bottom: 6px; }
   .rf-title { font-family: var(--font-heading); font-size: 1.6rem; font-weight: 700; color: var(--abn-navy); letter-spacing: -0.3px; }
+  .rf-intro { font-size: 0.9rem; color: var(--abn-muted); margin-top: 6px; }
   .rf-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .rf-stat { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 999px; background: #f3f8f9; font-size: 0.8rem; font-weight: 600; color: var(--abn-navy); }
   .rf-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
@@ -1412,14 +1417,14 @@
       <div class="req-footer-inner" id="requests-section">
         <div class="rf-head">
           <div>
-            <div class="rf-eyebrow">Shared with the team</div>
-            <div class="rf-title">Subcontractor requests</div>
+            <div class="rf-title">Request a subcontractor</div>
+            <div class="rf-intro">Can't find the subcontractor you need? Send a request and follow its progress here.</div>
           </div>
           <div class="rf-right">
             <span class="rf-stat"><span class="rf-dot open"></span>${openList.length} Open</span>
             <span class="rf-stat"><span class="rf-dot searching"></span>${searching.length} Searching</span>
             <span class="rf-stat"><span class="rf-dot found"></span>${found.length} Found</span>
-            <button class="rf-new" onclick="app.showRequest()">+ Request a subcontractor</button>
+            <button class="rf-new" onclick="app.showRequest()">+ New request</button>
           </div>
         </div>
         ${active.length
