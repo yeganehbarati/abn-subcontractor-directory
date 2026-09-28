@@ -142,6 +142,25 @@
   .field label .req { color: var(--abn-teal); }
   .field-row { display: flex; gap: 12px; }
   .field-row .field { flex: 1; min-width: 0; }
+  .form-section {
+    font-family: var(--font-heading);
+    font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--abn-teal);
+    margin: 4px 0 10px;
+  }
+  .form-divider { border: none; border-top: 1px solid #e3edef; margin: 6px 0 18px; }
+  .breadcrumb button.btn-requests-lib { margin-left: auto; }
+  .breadcrumb button.btn-requests-lib + .btn-request { margin-left: 8px; }
+  .req-count { display: inline-block; min-width: 18px; padding: 1px 6px; margin-left: 4px; border-radius: 9px; background: var(--abn-cyan); color: var(--abn-navy); font-size: 11px; text-align: center; }
+  .req-group-title { font-family: var(--font-heading); font-size: 13px; font-weight: 700; letter-spacing: 0.5px; color: rgba(255,255,255,0.85); margin: 22px 0 10px; text-transform: uppercase; }
+  .status-badge { font-family: var(--font-heading); font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 5px 12px; border-radius: 12px; white-space: nowrap; }
+  .status-badge.open { background: #fff1e8; color: #E8530A; border: 1px solid #f6c2a3; }
+  .status-badge.searching { background: #e6f7fa; color: var(--abn-teal); border: 1px solid var(--abn-pale-teal); }
+  .status-badge.found { background: linear-gradient(90deg, var(--abn-teal), var(--abn-cyan)); color: white; }
+  .company-card.req-open { border-left-color: #E8530A; }
+  .company-card.req-searching { border-left-color: var(--abn-teal); }
+  .company-card.req-found { border-left-color: var(--abn-cyan); opacity: 0.85; }
+  .req-meta { font-size: 0.75rem; color: var(--abn-muted); margin-top: 8px; }
   .request-intro { font-size: 0.85rem; color: var(--abn-muted); margin: -6px 0 18px; line-height: 1.45; }
   .request-done { text-align: center; padding: 8px 0 4px; }
   .request-done .big { font-size: 2.4rem; margin-bottom: 6px; }
@@ -1111,7 +1130,7 @@
 
   // Always one step up from the current level.
   function backButton() {
-    if (view.level === 'categories') {
+    if (view.level === 'categories' || view.level === 'requests') {
       return `<button class="btn-back" onclick="app.goCountries()">${BACK_ARROW} All countries</button>`;
     }
     if (view.level === 'companies') {
@@ -1136,9 +1155,13 @@
       html = `<span class="current">Countries</span>`;
     } else if (view.level === 'categories') {
       html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><span class="current">${countryCrumb}</span>`;
+    } else if (view.level === 'requests') {
+      html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><span class="current">Requests</span>`;
     } else if (view.level === 'companies') {
       html = `<button onclick="app.goCountries()">Countries</button><span class="sep">\u203a</span><button onclick="app.goCategories('${jsStr(view.country)}')">${countryCrumb}</button><span class="sep">\u203a</span><span class="current">${categoryIcon(view.category)} ${escapeHtml(view.category)}</span>`;
     }
+    const openCount = (data.requests || []).filter(r => r.status !== 'found').length;
+    html += `<button class="btn-requests-lib" onclick="app.goRequests()">Requests${openCount ? `<span class="req-count">${openCount}</span>` : ''}</button>`;
     html += `<button class="btn-request" onclick="app.showRequest()">+ Request a subcontractor</button>`;
     crumbEl.innerHTML = html;
   }
@@ -1238,8 +1261,78 @@
     `;
   }
 
+  const STATUS_LABEL = { open: 'Open', searching: 'Searching', found: 'Found' };
+  function fmtDate(iso) {
+    if (!iso) return '';
+    const d = iso.length === 10 ? new Date(iso + 'T00:00:00') : new Date(iso);
+    return isNaN(d) ? escapeHtml(iso) : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  function requestCard(r, i) {
+    const st = r.status || 'open';
+    let actions = '';
+    if (st === 'open') actions += `<button class="btn-primary" style="padding:7px 14px; font-size:0.8rem;" onclick='app.setRequestStatus("${r.id}", "searching")'>Start searching</button>`;
+    if (st !== 'found') actions += `<button class="btn-primary" style="padding:7px 14px; font-size:0.8rem;" onclick='app.setRequestStatus("${r.id}", "found")'>Mark as found</button>`;
+    if (st === 'found') actions += `<button class="btn-text" onclick='app.setRequestStatus("${r.id}", "open")'>Reopen</button>`;
+    actions += `<button class="btn-text danger" onclick='app.deleteRequest("${r.id}")'>Remove</button>`;
+    let history = `Requested ${fmtDate(r.createdAt)}`;
+    if (r.searchingAt) history += ` \u00b7 Search started ${fmtDate(r.searchingAt)}`;
+    if (r.foundAt && st === 'found') history += ` \u00b7 Found ${fmtDate(r.foundAt)}`;
+    return `
+      <div class="company-card req-${st}" style="animation-delay:${i * 0.04}s">
+        <div class="company-card-top">
+          <div class="company-name">${escapeHtml(r.trade)}</div>
+          <div class="status-badge ${st}">${STATUS_LABEL[st] || st}</div>
+        </div>
+        <div class="company-details">
+          <div><span class="icn">${CONTACT_ICONS.pin}</span>${escapeHtml(r.city)}, ${escapeHtml(r.country)}</div>
+          <div><b>Project:</b>&nbsp;${escapeHtml(r.project)}</div>
+          <div><b>Needed by:</b>&nbsp;${fmtDate(r.neededBy)}</div>
+          <div><span class="icn">${CONTACT_ICONS.person}</span>${escapeHtml(r.name)}</div>
+        </div>
+        ${r.note ? `<div class="company-notes">${escapeHtml(r.note)}</div>` : ''}
+        <div class="req-meta">${history}</div>
+        <div class="company-actions" style="align-items:center; gap:8px; flex-wrap:wrap;">${actions}</div>
+      </div>`;
+  }
+  function renderRequests() {
+    const all = (data.requests || []).slice();
+    const byNeeded = (a, b) => String(a.neededBy || '').localeCompare(String(b.neededBy || ''));
+    const groups = [
+      ['open', 'Open'],
+      ['searching', 'Searching'],
+      ['found', 'Found']
+    ].map(([key, title]) => {
+      const list = all.filter(r => (r.status || 'open') === key).sort(key === 'found'
+        ? (a, b) => String(b.foundAt || '').localeCompare(String(a.foundAt || ''))
+        : byNeeded);
+      if (!list.length) return '';
+      return `<div class="req-group-title">${title} (${list.length})</div>` + list.map(requestCard).join('');
+    }).join('');
+    mainEl.innerHTML = `
+      ${backButton()}
+      <div class="section-title">
+        <span>Subcontractor requests</span>
+        <button class="btn-primary" onclick="app.showRequest()">+ Request a subcontractor</button>
+      </div>
+      ${groups || '<div class="empty-state">No requests yet.</div>'}
+    `;
+  }
+
+  // Apply a change to the shared doc safely (re-reads latest data so nobody's edits get overwritten).
+  async function updateShared(mutator) {
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(DOC_REF);
+      const current = (snap.exists && snap.data() && snap.data().json) ? JSON.parse(snap.data().json) : data;
+      if (!current.requests) current.requests = [];
+      mutator(current);
+      tx.set(DOC_REF, { json: JSON.stringify(current), updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      data = current;
+    });
+  }
+
   function render() {
     renderBreadcrumb();
+    if (view.level === 'requests') { renderRequests(); return; }
     if (view.level === 'countries') renderCountries();
     else if (view.level === 'categories') renderCategories();
     else if (view.level === 'companies') renderCompanies();
@@ -1277,6 +1370,44 @@
     goCountries() { view = { level: 'countries', country: null, category: null }; render(); },
     goCategories(country) { view = { level: 'categories', country, category: null }; render(); },
     goCompanies(country, category) { view = { level: 'companies', country, category }; render(); },
+    async goRequests() {
+      view = { level: 'requests', country: null, category: null };
+      render();
+      try {
+        const snap = await DOC_REF.get();
+        if (snap.exists && snap.data() && snap.data().json) {
+          data = JSON.parse(snap.data().json);
+          if (!data.companies) data.companies = {};
+          if (!data.countries) data.countries = [];
+          if (!data.categories) data.categories = [];
+          if (view.level === 'requests') render();
+        }
+      } catch (e) { console.error('Refresh failed', e); }
+    },
+    async setRequestStatus(id, status) {
+      try {
+        await updateShared(cur => {
+          const r = cur.requests.find(x => x.id === id);
+          if (!r) return;
+          r.status = status;
+          const now = new Date().toISOString();
+          if (status === 'searching') r.searchingAt = now;
+          if (status === 'found') r.foundAt = now;
+          if (status === 'open') { delete r.foundAt; }
+        });
+      } catch (e) {
+        console.error(e);
+        alert('Could not update the request. Please try again.');
+      }
+      render();
+    },
+    deleteRequest(id) {
+      showConfirm('Remove this request from the library?', async () => {
+        try { await updateShared(cur => { cur.requests = cur.requests.filter(x => x.id !== id); }); }
+        catch (e) { console.error(e); alert('Could not remove the request. Please try again.'); }
+        render();
+      });
+    },
 
     showAddCountry() {
       showModal(`
@@ -1458,18 +1589,20 @@
       const prefillTrade = view.category || '';
       showModal(`
         <h2>Request a subcontractor</h2>
-        <p class="request-intro">Need a subcontractor we don't have yet? Fill this in and Yeganeh will start looking right away.</p>
-        <div class="field"><label>Your name <span class="req">*</span></label><input type="text" id="r-name" placeholder="e.g. Tom"></div>
+        <div class="form-section">Requested by</div>
+        <div class="field"><label>Your name <span class="req">*</span></label><input type="text" id="r-name"></div>
+        <hr class="form-divider">
+        <div class="form-section">Subcontractor needed</div>
         <div class="field-row">
-          <div class="field"><label>Country <span class="req">*</span></label><input type="text" id="r-country" value="${escapeHtml(prefillCountry)}" placeholder="e.g. Netherlands"></div>
-          <div class="field"><label>Region / city <span class="req">*</span></label><input type="text" id="r-city" placeholder="e.g. Eindhoven"></div>
+          <div class="field"><label>Country <span class="req">*</span></label><input type="text" id="r-country" value="${escapeHtml(prefillCountry)}"></div>
+          <div class="field"><label>Region / city <span class="req">*</span></label><input type="text" id="r-city"></div>
         </div>
-        <div class="field"><label>Which subcontractor? <span class="req">*</span></label><input type="text" id="r-trade" value="${escapeHtml(prefillTrade)}" placeholder="e.g. Electrical, HVAC, Flooring"></div>
+        <div class="field"><label>Which subcontractor? <span class="req">*</span></label><input type="text" id="r-trade" value="${escapeHtml(prefillTrade)}"></div>
         <div class="field-row">
           <div class="field"><label>For which project? <span class="req">*</span></label><input type="text" id="r-project" placeholder="Project name or number"></div>
           <div class="field"><label>Needed by <span class="req">*</span></label><input type="date" id="r-date" min="${today}"></div>
         </div>
-        <div class="field"><label>Note <span style="font-weight:400; opacity:0.7;">(optional)</span></label><textarea id="r-note" placeholder="Anything that helps, e.g. cleanroom experience needed"></textarea></div>
+        <div class="field"><label>Note <span style="font-weight:400; opacity:0.7;">(optional)</span></label><textarea id="r-note"></textarea></div>
         <div class="modal-actions">
           <button class="btn-secondary" onclick="app.closeModal()">Cancel</button>
           <button class="btn-primary" id="r-submit" onclick="app.submitRequest()">Send request</button>
@@ -1508,14 +1641,7 @@
       // 1) Keep a record in the directory (transaction so we never overwrite someone else's edits).
       let saved = false;
       try {
-        await db.runTransaction(async (tx) => {
-          const snap = await tx.get(DOC_REF);
-          const current = (snap.exists && snap.data() && snap.data().json) ? JSON.parse(snap.data().json) : data;
-          if (!current.requests) current.requests = [];
-          current.requests.push(request);
-          tx.set(DOC_REF, { json: JSON.stringify(current), updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-          data = current;
-        });
+        await updateShared(cur => { cur.requests.push(request); });
         saved = true;
       } catch (e) {
         console.error('Saving request failed', e);
@@ -1545,8 +1671,7 @@
         <div class="request-done">
           <div class="big">✅</div>
           <h2 style="text-align:center;">Request sent</h2>
-          <p>Thanks ${escapeHtml(request.name)}! Yeganeh has been notified and will look for a
-          ${escapeHtml(request.trade)} subcontractor in ${escapeHtml(request.city)}, ${escapeHtml(request.country)}.
+          <p>Thanks ${escapeHtml(request.name)}! Yeganeh has been notified.<br>You can follow the progress under <b>Requests</b>.
           ${emailed ? '' : '<br><br><strong>Note:</strong> the email notification did not go through, so please also let Yeganeh know directly.'}</p>
           <button class="btn-primary" onclick="app.closeModal()">Close</button>
         </div>
