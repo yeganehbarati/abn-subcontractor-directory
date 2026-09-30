@@ -686,6 +686,34 @@
     z-index: 100;
     padding: 20px;
   }
+
+  /* Bulk import */
+  .title-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-light {
+    background: rgba(255,255,255,0.12);
+    color: white;
+    border: 1.5px solid rgba(255,255,255,0.55);
+    padding: 8px 14px;
+    font-family: var(--font-heading);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.2s;
+  }
+  .btn-light:hover { background: white; color: var(--abn-navy); }
+  .import-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .import-summary div { background: #f2f7f8; border-radius: 4px; padding: 10px; text-align: center; font-size: 0.8rem; color: var(--abn-navy); }
+  .import-summary b { display: block; font-size: 1.3rem; font-family: var(--font-heading); }
+  .import-list { font-size: 0.8rem; background: #f7f9fa; border-radius: 4px; padding: 10px 12px; margin-bottom: 14px; max-height: 160px; overflow-y: auto; line-height: 1.5; }
+  .import-list h4 { font-size: 0.8rem; margin-bottom: 4px; color: var(--abn-navy); }
+  .import-list.warn { background: #fff6e6; }
+  .import-list.err { background: #fdeeee; }
+  .import-hint { font-size: 0.85rem; color: #555; line-height: 1.5; margin-bottom: 16px; }
+  .import-check { display: flex; gap: 8px; align-items: flex-start; font-size: 0.85rem; margin-bottom: 14px; }
+  .modal.wide { max-width: 620px; }
   .modal {
     background: white;
     border-radius: 6px;
@@ -911,6 +939,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 (function() {
   const ALLOWED_DOMAIN = 'abn-cleanroomtechnology.com';
@@ -1256,7 +1285,14 @@
     }).join('');
 
     mainEl.innerHTML = `
-      <div class="section-title">Countries</div>
+      <div class="section-title">
+        <span>Countries</span>
+        <div class="title-actions">
+          <button class="btn-light" onclick="app.downloadTemplate()">⬇ Template</button>
+          <button class="btn-light" onclick="app.startImport()">⬆ Import Excel</button>
+        </div>
+      </div>
+      <input type="file" id="import-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="app.handleImportFile(this)">
       <div class="grid">
         ${tiles}
         <div class="tile add-tile" onclick="app.showAddCountry()"><span class="plus-circle">+</span> Add Country</div>
@@ -1484,6 +1520,110 @@
       onConfirm();
     });
   }
+
+
+  // ---------- Bulk import ----------
+  const IMPORT_COLUMNS = ['Country', 'Trade (type of work)', 'Company', 'Contact person', 'Phone', 'Email', 'City', 'Tier (Preferred or Backup)', 'Notes'];
+  const HEADER_ALIASES = {
+    country: ['country', 'land', 'pays'],
+    trade: ['trade', 'category', 'trade category', 'discipline', 'vakgebied'],
+    company: ['company', 'company name', 'name', 'bedrijf', 'firma'],
+    contact: ['contact person', 'contact', 'contact name', 'contactpersoon'],
+    phone: ['phone', 'telephone', 'tel', 'mobile', 'telefoon', 'gsm'],
+    email: ['email', 'e-mail', 'mail'],
+    city: ['city', 'town', 'location', 'stad', 'plaats'],
+    tier: ['tier', 'type', 'priority'],
+    notes: ['notes', 'note', 'remarks', 'comments', 'opmerkingen']
+  };
+  const COUNTRY_ALIASES = {
+    'be': 'Belgium', 'belgie': 'Belgium', 'belgië': 'Belgium', 'belgique': 'Belgium',
+    'nl': 'Netherlands', 'the netherlands': 'Netherlands', 'nederland': 'Netherlands', 'holland': 'Netherlands',
+    'de': 'Germany', 'deutschland': 'Germany', 'duitsland': 'Germany',
+    'fr': 'France', 'frankrijk': 'France',
+    'lu': 'Luxembourg', 'luxemburg': 'Luxembourg',
+    'uk': 'United Kingdom', 'gb': 'United Kingdom', 'england': 'United Kingdom', 'great britain': 'United Kingdom',
+    'ch': 'Switzerland', 'schweiz': 'Switzerland', 'suisse': 'Switzerland', 'zwitserland': 'Switzerland',
+    'it': 'Italy', 'italia': 'Italy', 'italië': 'Italy',
+    'es': 'Spain', 'españa': 'Spain', 'spanje': 'Spain',
+    'pt': 'Portugal', 'at': 'Austria', 'österreich': 'Austria', 'oostenrijk': 'Austria',
+    'pl': 'Poland', 'polska': 'Poland', 'polen': 'Poland',
+    'dk': 'Denmark', 'danmark': 'Denmark', 'denemarken': 'Denmark',
+    'se': 'Sweden', 'sverige': 'Sweden', 'zweden': 'Sweden',
+    'ie': 'Ireland', 'ierland': 'Ireland', 'cz': 'Czech Republic', 'czechia': 'Czech Republic'
+  };
+  const norm = v => String(v == null ? '' : v).trim();
+  const low = v => norm(v).toLowerCase();
+
+  function resolveName(raw, existing, aliases) {
+    const v = low(raw);
+    if (!v) return { name: '', isNew: false };
+    const hit = existing.find(x => x.toLowerCase() === v);
+    if (hit) return { name: hit, isNew: false };
+    const aliased = aliases && aliases[v];
+    if (aliased) {
+      const hit2 = existing.find(x => x.toLowerCase() === aliased.toLowerCase());
+      return { name: hit2 || aliased, isNew: !hit2 };
+    }
+    const clean = norm(raw);
+    return { name: clean.charAt(0).toUpperCase() + clean.slice(1), isNew: true };
+  }
+
+  function mapHeaders(headerRow) {
+    const map = {};
+    headerRow.forEach((h, i) => {
+      const key = low(h).replace(/\*/g, '').replace(/\(.*?\)/g, '').trim();
+      Object.keys(HEADER_ALIASES).forEach(field => {
+        if (map[field] === undefined && HEADER_ALIASES[field].includes(key)) map[field] = i;
+      });
+    });
+    return map;
+  }
+
+  function buildImportPlan(rows) {
+    const plan = { add: [], update: [], errors: [], newCountries: new Set(), newTrades: new Set() };
+    if (!rows.length) { plan.fatal = 'The file is empty.'; return plan; }
+    const cols = mapHeaders(rows[0]);
+    const missingCols = ['country', 'trade', 'company'].filter(f => cols[f] === undefined);
+    if (missingCols.length) {
+      plan.fatal = 'Missing required column(s): ' + missingCols.join(', ') + '. Please use the template.';
+      return plan;
+    }
+    const cell = (r, f) => cols[f] === undefined ? '' : norm(r[cols[f]]);
+    const seen = new Set();
+    rows.slice(1).forEach((r, idx) => {
+      const line = idx + 2;
+      if (!r || r.every(c => !norm(c))) return; // skip blank rows
+      const company = cell(r, 'company');
+      const c = resolveName(cell(r, 'country'), data.countries, COUNTRY_ALIASES);
+      const t = resolveName(cell(r, 'trade'), data.categories, null);
+      const missing = [];
+      if (!company) missing.push('company');
+      if (!c.name) missing.push('country');
+      if (!t.name) missing.push('trade');
+      if (missing.length) { plan.errors.push(`Row ${line}: missing ${missing.join(', ')}`); return; }
+      const tierRaw = low(cell(r, 'tier'));
+      const tier = tierRaw.startsWith('b') ? 'backup' : 'preferred';
+      const record = {
+        company, contact: cell(r, 'contact'), phone: cell(r, 'phone'), email: cell(r, 'email'),
+        city: cell(r, 'city'), notes: cell(r, 'notes'), tier, _tierGiven: !!tierRaw
+      };
+      const dupKey = [c.name, t.name, company].join('|').toLowerCase();
+      if (seen.has(dupKey)) { plan.errors.push(`Row ${line}: "${company}" appears twice in the file (skipped)`); return; }
+      seen.add(dupKey);
+      if (c.isNew) plan.newCountries.add(c.name);
+      if (t.isNew) plan.newTrades.add(t.name);
+      const existing = companiesIn(c.name, t.name).find(x => low(x.company) === low(company));
+      (existing ? plan.update : plan.add).push({ country: c.name, trade: t.name, record, line });
+    });
+    return plan;
+  }
+
+  function listBlock(title, items, cls) {
+    if (!items.length) return '';
+    return `<div class="import-list ${cls || ''}"><h4>${escapeHtml(title)}</h4>${items.map(i => escapeHtml(i)).join('<br>')}</div>`;
+  }
+
+  let pendingImport = null;
 
   const app = {
     goCountries() { view = { level: 'countries', country: null, category: null }; render(); },
@@ -1798,6 +1938,156 @@
         </div>
       `);
       render();
+    },
+
+
+    downloadTemplate() {
+      if (typeof XLSX === 'undefined') { alert('Excel library could not load. Please check your connection and refresh.'); return; }
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([IMPORT_COLUMNS]);
+      ws['!cols'] = [18, 24, 28, 22, 18, 28, 16, 26, 40].map(w => ({ wch: w }));
+      ws['B1'].c = [{ a: 'ABN', t: 'Type of work, e.g. HVAC, electricity, flooring. See the Instructions sheet for existing trades.' }];
+      ws['H1'].c = [{ a: 'ABN', t: 'Preferred = first choice. Backup = only if the preferred one is not available. Empty = Preferred.' }];
+      ws['B1'].c.hidden = true; ws['H1'].c.hidden = true;
+      XLSX.utils.book_append_sheet(wb, ws, 'Subcontractors');
+      const trades = [...data.categories].sort((a, b) => a.localeCompare(b));
+      const countries = [...data.countries].sort((a, b) => a.localeCompare(b));
+      const info = [
+        ['How to fill in'],
+        [],
+        ['Column', 'Required', 'What to enter'],
+        ['Country', 'Yes', 'Country name in English. Existing countries are matched automatically; new ones are created.'],
+        ['Trade (type of work)', 'Yes', 'The kind of work the subcontractor does, e.g. HVAC, electricity, flooring. Use one of the existing trades listed below where possible; a new name creates a new trade.'],
+        ['Company', 'Yes', 'Company name. If it already exists in the same country and trade, it is updated instead of duplicated.'],
+        ['Contact person', 'No', ''],
+        ['Phone', 'No', ''],
+        ['Email', 'No', ''],
+        ['City', 'No', ''],
+        ['Tier (Preferred or Backup)', 'No', 'How much we rely on them. Preferred = our first choice. Backup = only when the preferred company is not available. Leave empty = Preferred.'],
+        ['Notes', 'No', ''],
+        [],
+        ['One company per row. Do not rename or reorder the column headers.'],
+        [],
+        ['Existing countries', 'Existing trades']
+      ];
+      const n = Math.max(countries.length, trades.length);
+      for (let i = 0; i < n; i++) info.push([countries[i] || '', trades[i] || '']);
+      const wsInfo = XLSX.utils.aoa_to_sheet(info);
+      wsInfo['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 90 }];
+      XLSX.utils.book_append_sheet(wb, wsInfo, 'Instructions');
+      XLSX.writeFile(wb, 'ABN_Subcontractor_Import_Template.xlsx');
+    },
+
+    startImport() {
+      if (typeof XLSX === 'undefined') { alert('Excel library could not load. Please check your connection and refresh.'); return; }
+      const input = document.getElementById('import-file');
+      input.value = '';
+      input.click();
+    },
+
+    handleImportFile(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        let rows;
+        try {
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          const sheetName = wb.SheetNames.includes('Subcontractors') ? 'Subcontractors' : wb.SheetNames[0];
+          rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '', raw: false });
+        } catch (err) {
+          console.error(err);
+          alert('Could not read this file. Please use the Excel template.');
+          return;
+        }
+        const plan = buildImportPlan(rows);
+        if (plan.fatal) { alert(plan.fatal); return; }
+        pendingImport = plan;
+        const newC = [...plan.newCountries], newT = [...plan.newTrades];
+        const hasNew = newC.length || newT.length;
+        const total = plan.add.length + plan.update.length;
+        showModal(`
+          <h2>Import preview</h2>
+          <p class="import-hint">File: <b>${escapeHtml(file.name)}</b></p>
+          <div class="import-summary">
+            <div><b>${plan.add.length}</b>new</div>
+            <div><b>${plan.update.length}</b>updated</div>
+            <div><b>${plan.errors.length}</b>skipped</div>
+          </div>
+          ${listBlock('New countries that will be created', newC, 'warn')}
+          ${listBlock('New trades that will be created (visible in every country)', newT, 'warn')}
+          ${listBlock('Existing companies that will be updated', plan.update.map(u => `${u.record.company} — ${u.country} › ${u.trade}`))}
+          ${listBlock('Skipped rows', plan.errors, 'err')}
+          ${hasNew ? `<label class="import-check"><input type="checkbox" id="imp-allow-new" checked> Create the new countries/trades listed above. If unticked, those rows are skipped.</label>` : ''}
+          <div class="modal-actions">
+            <button class="btn-secondary" onclick="app.closeModal()">Cancel</button>
+            <button class="btn-primary" id="imp-go" ${total ? '' : 'disabled'} onclick="app.confirmImport()">Import ${total}</button>
+          </div>
+        `);
+        document.querySelector('#modal-overlay .modal').classList.add('wide');
+      };
+      reader.readAsArrayBuffer(file);
+    },
+
+    async confirmImport() {
+      const plan = pendingImport;
+      if (!plan) return;
+      const allowEl = document.getElementById('imp-allow-new');
+      const allowNew = allowEl ? allowEl.checked : true;
+      const btn = document.getElementById('imp-go');
+      btn.disabled = true; btn.textContent = 'Importing…';
+      let added = 0, updated = 0, skipped = 0;
+      try {
+        await updateShared(cur => {
+          if (!cur.countries) cur.countries = [];
+          if (!cur.categories) cur.categories = [];
+          if (!cur.companies) cur.companies = {};
+          added = updated = skipped = 0;
+          [...plan.add, ...plan.update].forEach(item => {
+            const hasCountry = cur.countries.some(x => x.toLowerCase() === item.country.toLowerCase());
+            const hasTrade = cur.categories.some(x => x.toLowerCase() === item.trade.toLowerCase());
+            if ((!hasCountry || !hasTrade) && !allowNew) { skipped++; return; }
+            if (!hasCountry) cur.countries.push(item.country);
+            if (!hasTrade) cur.categories.push(item.trade);
+            const country = cur.countries.find(x => x.toLowerCase() === item.country.toLowerCase());
+            const trade = cur.categories.find(x => x.toLowerCase() === item.trade.toLowerCase());
+            const key = companyKey(country, trade);
+            if (!cur.companies[key]) cur.companies[key] = [];
+            const list = cur.companies[key];
+            const rec = item.record;
+            const existing = list.find(x => (x.company || '').toLowerCase() === rec.company.toLowerCase());
+            if (existing) {
+              ['contact', 'phone', 'email', 'city', 'notes'].forEach(f => { if (rec[f]) existing[f] = rec[f]; });
+              if (rec._tierGiven) existing.tier = rec.tier;
+              updated++;
+            } else {
+              list.push({
+                id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+                company: rec.company, contact: rec.contact, phone: rec.phone, email: rec.email,
+                city: rec.city, notes: rec.notes, tier: rec.tier
+              });
+              added++;
+            }
+          });
+        });
+      } catch (e) {
+        console.error(e);
+        btn.disabled = false; btn.textContent = 'Try again';
+        alert('The import could not be saved. Please check your connection and try again.');
+        return;
+      }
+      pendingImport = null;
+      closeModal();
+      render();
+      const skippedTotal = skipped + plan.errors.length;
+      showModal(`
+        <div class="request-done">
+          <div class="big">✅</div>
+          <h2 style="text-align:center;">Import complete</h2>
+          <p>${added} added · ${updated} updated${skippedTotal ? ` · ${skippedTotal} skipped` : ''}</p>
+          <button class="btn-primary" onclick="app.closeModal()">Close</button>
+        </div>
+      `);
     },
 
     closeModal() { closeModal(); }
